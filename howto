@@ -1,0 +1,7 @@
+### url
+- https://juejin.im/post/6844903590369181703
+### howto
+- hexo g : generate
+- hexo d -g: deploy and generate
+- hexo n layout filename
+- hexo p layout filename: post file from draft

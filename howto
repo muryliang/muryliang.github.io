@@ -5,3 +5,7 @@
 - hexo d -g: deploy and generate
 - hexo n layout filename
 - hexo p layout filename: post file from draft
+- hexo s -p port: local serve
+- hexo clean: clear
+### markdown guide
+- best practise: https://www.markdownguide.org/basic-syntax/ 

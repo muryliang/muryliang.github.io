@@ -43,4 +43,18 @@ leveldb使用的编码致力于节省资源，所以使用的varint这种变长�
 
 ## 内部内存分配
 
-内存分配使用area结构，这个本质还是使用new分配，只不过多了aligned接口保证分配在指定对齐位置，并且至少8字节对齐。这个我觉得有用的地方就是给MakeRoomForWrite提供当前内存使用量信息，并且这个是粗略的当前已分配block数量(32k单位), 何时新block？
+内存分配使用area结构，这个本质还是使用new分配，只不过多了aligned接口保证分配在指定对齐位置，并且至少8字节对齐。这个我觉得有用的地方就是给MakeRoomForWrite提供当前内存使用量信息，并且这个是粗略的当前已分配block数量(32k单位)。关于何时使用新block有两种情况，首先要说kBlockSize这个值, 设定是32k，如果单次分配大于1/4这个值，就专门全新分配一个block给它，而不是使用remaining中的份额。其余情况下，如果remaining不够，那么本block剩余部分浪费，然后继续分配一个新的32k block使用。从这里看出，这个分配器实际上是比较浪费空间的，胜在管理简单。
+
+## Logger
+
+在util/env_posix.cc 中， Logger使用NewLogger->PosixLogger产生，使用append的方式打开，每条log使用fwrite进行刷入并flush。这里使用了stack+heap的方式，首先尝试stack中构建log，如果失败，才分配heap, 这样避免频繁的分配内存，又能兼顾多数情况下的效率。
+
+## Utils
+
+## Singleton
+
+使用typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type stor来保存单例模式, 这可以定义作为未初始化的类的空间，使用new (&stor) XXX()可以进行对象构建
+
+## Logging utils
+
+一些用于数字和字符串转换，消耗字符串中数字的函数，应该是用于log的，但是这里没有体现。

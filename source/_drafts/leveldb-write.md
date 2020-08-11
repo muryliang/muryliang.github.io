@@ -6,9 +6,13 @@ tags:
 
 - refs
 - WAL
-- skiplist
+- memtable
 - snapshot, sequence
 - data format
+- bloom filter in util/bloom.cc
+- code style
+- thread annotation: GUARDED_BY
+
 
 # todo current blog
 

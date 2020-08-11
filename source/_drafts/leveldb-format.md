@@ -7,7 +7,7 @@ tags:
 
 ## key格式
 
-### internalkey
+### Internalkey
 
 用于内部表示一个userkey，具体格式是 key + seq(56bit)|type(8bit)(del or put), 通过InternalKeyComparator进行互相比较。首先Memtable构造的时候传入的是util/db_options.h中的BytewiseComparator，顾名思义，就是普通的Slice的compare方法实现，然后InternalKeyComparator内部的Compare首先使用BytewiseComparator进行比较，如果不同直接返回结果，相同则比较internalkey后面的seq|type,由于每个key的seq不一样,这里实际比较的就是seq(处于高位56bit),大的表示最新，就应该排在前面。所以是根据userkey升序，根据seq降序。
 
@@ -21,7 +21,7 @@ tags:
 
 ### LookupKey
 
-这个是用于查询的key结构，内部是totallen | userkey | seq | valtypeforseek, 用start_表示整个key的开头，kstart_表示去掉encode的长度之后的userkey开头，end表示包含后面seq|type的结尾。内部做了小数据优化，使用内部数组而不是默认分配
+这个是用于查询的key结构，内部是totallen | userkey | seq | valtypeforseek, 用start_表示整个key的开头，kstart_表示去掉encode的长度之后的userkey开头，end表示包含后面seq|type的结尾。内部做了小数据优化，使用内部数组而不是默认分配。 注意分清lookupkey是包括头部varint的，并且type字段固定是valtype，用于查找的， internalkey是不没有头部varint的,包括了seq以及具体对应key的valtype。
 
 ### Slice
 

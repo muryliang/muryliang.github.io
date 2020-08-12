@@ -12,6 +12,7 @@ tags:
 - bloom filter in util/bloom.cc
 - code style
 - thread annotation: GUARDED_BY
+- compaction执行过程
 
 
 # todo current blog
@@ -49,9 +50,12 @@ leveldb分为读写两种操作，读在下一次分析，这次分析写操作�
 
 另外，当需要合并时(即总数至少2个batch时), 为避免破坏作为输入掺水的head的batch，会使用一个固定的tmp_batch作为收集用的batch，这个会返回给上级函数，同时返回最后一个合并进入的writer。在上层函数中会把headbatch的sequence设置为`last_sequence+1`,同时设置之后的`last_sequence+1`为`last_sequence+count(batch)`
 
-## 遗留细节
+## WriteBatch
 
-- compaction执行过程
+WriteBatchInternal是用来作为WriteBatch中操作的工具类，同时不想暴露给外部。
+
+WriteBatch内部是 start_seq(64) | count(32) | key(varstring) | val(varstring) .....的模式，实际内部通过InsertInto经由的MemTableInserter实现每个entry的插入，对于delete插入的是空的value。每进行一次Add操作，就会基于sequence++,所有每个entry的seq都不相同，外部db_impl.cc中只会在writebatch头部记录一个起始seq，然后在write完成后更新最终seq。不管内部出错与否，都不能够重复使用这里已经分配出去的seq，只能使用超过当前writebatch的seq。
+
 
 # 读操作
 

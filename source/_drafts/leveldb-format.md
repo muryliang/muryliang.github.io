@@ -25,7 +25,7 @@ tags:
 
 ### Slice
 
-用于和go类似的只存储指针和长度的slice，要求原string必须在slice生命期间一直有效，不可修改。内部的compare在相同的情况下短的为小。
+用于和go类似的只存储指针和长度的slice，要求原string必须在slice生命期间一直有效，不可修改。内部的compare在相同的情况下短的为小。Slice还支持了[]操作用于访问内部的char*数组。
 
 ## 数据编码方式
 
@@ -58,3 +58,24 @@ leveldb使用的编码致力于节省资源，所以使用的varint这种变长�
 ## Logging utils
 
 一些用于数字和字符串转换，消耗字符串中数字的函数，应该是用于log的，但是这里没有体现。
+
+## Cache
+
+leveldb的cache使用lrucache完成，内部使用了一个自创的hashtable
+
+### hashtable
+
+- Resize操作通过扩展当前hashbucket直到超过elem总数，对齐2的幂次，然后把每个元素放入新的hash。
+- LoopUp 操作就是找是否在hashtable中，内部返回的是二级指针，用于插入的
+- Insert操作会插入重复对象的,elem >length的时候会resize，保证平摊O(1)的时间。
+- remove操作会减少一个对象
+
+### LRUCache
+
+利用LRUHandle作为节点，Hashtable作为内部搜索用表，管理所有cache的key，所有cache的key都在lru_或者in_use_两张表中，通过ref，unref进行移动。新插入的节点由于会返回，所以自动是进入in_use链表的。insert 操作插入table，finisherase操作从table中删除，内部是支持重复cache的并没有去重能力。对于没有引用的handle，直接使用传入的deleter进行析构，这个是针对entry的，重复的entry会重复使用对应handle的deleter。可以通过capacity判断是否需要cache，不需要的会直接返回对应handle，对外的形式是Cache::Handle
+
+在插入的时候会检测容量是否超过cap，超过了会从最old节点开始删除，容量通过charge数值调整，而不是简单的1
+
+## ShardedLRUCache
+
+将总cap平均给每个lrucache，数量是16个设定好的，然后把每个key按照hash出来的结果平均分配个对应lrucache使用即可。向外转的时候使用Handle{}用来保存。外部可以利用提供的Value(Handle* handle)方法获得指定key对应的value的void* 自己解释

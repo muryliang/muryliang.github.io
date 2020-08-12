@@ -76,6 +76,10 @@ leveldb的cache使用lrucache完成，内部使用了一个自创的hashtable
 
 在插入的时候会检测容量是否超过cap，超过了会从最old节点开始删除，容量通过charge数值调整，而不是简单的1
 
-## ShardedLRUCache
+### ShardedLRUCache
 
 将总cap平均给每个lrucache，数量是16个设定好的，然后把每个key按照hash出来的结果平均分配个对应lrucache使用即可。向外转的时候使用Handle{}用来保存。外部可以利用提供的Value(Handle* handle)方法获得指定key对应的value的void* 自己解释
+
+## Snapshot
+
+这个就是一个sequence的link list，按照由新到就排列(默认每次加入的必须是最新的)

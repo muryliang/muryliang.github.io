@@ -5,15 +5,14 @@ tags:
 # todo
 
 - refs
-- WAL
-- memtable
-- snapshot, sequence
 - data format
 - bloom filter in util/bloom.cc
 - code style
 - thread annotation: GUARDED_BY
 - compaction执行过程
 - dumpfile.cc how to dump
+- repair
+- table build builder.cc + table/table_builder.cc
 
 
 # todo current blog

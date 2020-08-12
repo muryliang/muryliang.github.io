@@ -1,0 +1,26 @@
+---
+title: leveldb_table
+tags:
+---
+
+# Table 的组成以及使用
+
+table是一个牵涉文件较多的部分，包括内部block的解析，table的读取，写入等，下面一个一个部分解析
+
+## Table Cache
+
+file: table_cache.cc
+对于每个table文件，.ldb或者sst结尾的，都用lrucache进行了打开描述符以及对应Table类的缓存，缓存由FindTable执行，由输入的filenumber作为cache的key，tableandfile类作为value。每次查找不存在cache中就保存，存在就直接获取。不论是iterator的构建，还是内部key的获取，都是通过指定filenumber的FindTable操作来实现的,并且两者都在最终自己析构的时候删除了对应cache的引用。
+实际查找的时候会先后查找ldb和sst，前者是l0的，后者是sstable
+
+## Table Builder
+BuildTable 通过根据number创建一个TableFile,然后利用TableBuilder将iter传入的所有key和value全部加入，刷盘，最后利用tablecache读取进行检验。
+
+TableBuilder中重要的部分都放在内部类Rep中，包含了data_block,index_block,以及可选的filter_block，每当Add之后，都会检测当前大小是否大于设定的block大小，是则通过Flush()立刻开始WriteBlock以及filterblock的写入工作，而indexblock entry的写入则是需要在开始下一个block的第一个key写入的时候才会去执行，根据注释，这样做的好处是indexblock使用的lastkey长度可以短一些，pending_index_entry就是用来判断什么时候更新indexblock的，一切都是为了节省空间。
+
+WriteBlock 会使用BlockBuilder.Finish()获取之前在TableBuilder.Add中放入当前block的所有content，根据option以及压缩率决定是否压缩，然后WriteRawBlock执行具体的写入操作, 这里面会直接写入文件，然后是type 1字节(压缩与否),然后是4字节的crc，同时更新BlockHandle(用来给上层后期利用blockhandle记录位置),这个用来在不同的函数间交互指示当前刚刚写入的block的offset以及size，用来在下次更新indexblock时用作其内容，indexblock就是超过lastkey，却小于下一个block firstkey的最短key，对应一个blockhandle
+
+在TableBuilder的使用中，Add结束后是调用Finish(),此时所有datablock已经写完。这里会首先写入filterblock，同时记录blockhandle(所有的filterblock在之前每次datablock Flush的时候都会相应StartBlock(offset),但是不会写入file，而是在这个时候进行filterblock->Finish()然后统一写入文件,同时记录对应handle。之后的metaindexblock就是记录这个handle，用的kv是filtername 与filter的blockhandle, 将其也写入作为一个metaindexblock,记录的是所有meta的开头以及所有的size到metaindexblockhandle。 然后填充最后indexblock entry的对应lastkey和handle, 整理成index block之后写入,记下indexblockhandle.
+最后在Footer中把这两个handle记录下来，具体格式是doc/table_format.md所示，使用的时候通过blockindex找block，通过metaindex找meta, 每个index里面都是多个entry
+
+注:这里看起来挺不一致的，先datablock,再filterblock，再一个metaindexblock单个entry记录filterblock区段的head以及size，再indexblock分多个entry记录不同的block对应的位置，最后footer中记录metaindexblock位置以及indexblock的位置和长度。

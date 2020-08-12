@@ -13,6 +13,7 @@ tags:
 - code style
 - thread annotation: GUARDED_BY
 - compaction执行过程
+- dumpfile.cc how to dump
 
 
 # todo current blog

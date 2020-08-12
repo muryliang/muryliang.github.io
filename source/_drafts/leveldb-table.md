@@ -26,6 +26,12 @@ WriteBlock 会使用BlockBuilder.Finish()获取之前在TableBuilder.Add中放�
 注:这里看起来挺不一致的，先datablock,再filterblock，再一个metaindexblock单个entry记录filterblock区段的head以及size，再indexblock分多个entry记录不同的block对应的位置，最后footer中记录metaindexblock位置以及indexblock的位置和长度。
 
 ## BlockBuilder
-同样使用Add与Finish方法工作，但是Finish会返回内部所有处理好的字符串,外部处理完后需要Reset，才能继续接收下一个Block的数据。
+被TableBuiler利用，使用Add与Finish方法工作，但是Finish会返回内部所有处理好的字符串,外部处理完后需要Reset，才能继续接收下一个Block的数据。单个block的结构很简单，每options_->block_restart_interval个entry开头都会放一个完整的entry，并且restart array记录这个entry的起始位置，其余的key都和上一个key比对，省略共同的部分，每个entry的结构是 sharedbytes(varint32)|unsharedbytes(varint32)|vallen(varint32)|nonshared_key_data|val_data ,最后finish的之后把所有的restart point以fix的形式添加到末尾即可, 这就是一个block。 对于indexblock区别就是 block_restart_interval 的值强制设置1，表示每条都是完整的
 
 ## FilterBlockBuilder
+filter block内部包含了众多的filter，每个管理一个block的key，在tablebuiler中每次flush中会使用startblock的GenerateFilter中完成到当前offset位置对应的filterblock(每个filterblock管理2k数据,但实际上只有tablebuiler调用startblock，也就是block内总数据量达到block_size的时候才会切换，这个应该会导致某个filterblock对应的key很多，而第二个直接为0才对(待测试),所有的filterblockoffset都存放在一个数组中，最后finish的时候写入所有filter的blockoffset，最后是这些offset的开头位置,最后是logbase，结束。<br/>
+在read的时候，则是根据blockoffset来反推所属的filterblock的位置的，这里感觉有不准确的地方，filterblock是每2k的offset属于一个，但是当时generatefilter的时候是根据单个block预估超过4k大小的时候才会StartBlock，既而产生一个包罗了当前所有key的filter，其结果是可能横跨两个filter，第一个包含所有key信息，第二个为空，也就是会出现部分key无法match，不得不搜索table来检测。 再看block offset似乎对应的就是那个block指定的filter，应该不会出现上面说的情况的。
+
+## Block
+
+## Table

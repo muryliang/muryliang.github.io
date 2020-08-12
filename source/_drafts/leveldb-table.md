@@ -24,3 +24,8 @@ WriteBlock 会使用BlockBuilder.Finish()获取之前在TableBuilder.Add中放�
 最后在Footer中把这两个handle记录下来，具体格式是doc/table_format.md所示，使用的时候通过blockindex找block，通过metaindex找meta, 每个index里面都是多个entry
 
 注:这里看起来挺不一致的，先datablock,再filterblock，再一个metaindexblock单个entry记录filterblock区段的head以及size，再indexblock分多个entry记录不同的block对应的位置，最后footer中记录metaindexblock位置以及indexblock的位置和长度。
+
+## BlockBuilder
+同样使用Add与Finish方法工作，但是Finish会返回内部所有处理好的字符串,外部处理完后需要Reset，才能继续接收下一个Block的数据。
+
+## FilterBlockBuilder

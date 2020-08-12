@@ -9,10 +9,12 @@ tags:
 - bloom filter in util/bloom.cc
 - code style
 - thread annotation: GUARDED_BY
-- compaction执行过程
 - dumpfile.cc how to dump
 - repair
 - table build builder.cc + table/table_builder.cc
+- table read(with cache, already known) and block read
+- iterator
+- compaction
 
 
 # todo current blog

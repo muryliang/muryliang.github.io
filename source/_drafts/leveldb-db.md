@@ -3,6 +3,11 @@ title: leveldb_db
 tags:
 ---
 
+# todo
+- db_impl
+- version_set/edit
+- More pictures
+
 # db
 
 ## dbiter
@@ -32,3 +37,5 @@ Prev 内部结束后saved_key位置保存当前key，iter位置保存在此之�
     2. 如果第一个是非del，同样记录下来，继续循环，直到找到下一个不同的key(这个key是不是delete无所谓，到此就停止了，记录在iter内)
 - 函数结束后saved_key中保存的是prev之后的key，而iter则是其之前另一个不同userkey的位置，用于后面FindPrevUserEntry使用。
 
+
+## db_impl

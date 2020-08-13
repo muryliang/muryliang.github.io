@@ -75,3 +75,9 @@ ApproximateOffsetOf 只是返回key所在block的起始位置，如果key小于�
 ### MergingIterator
 
 这个只管理一层多个iterator，利用归并排序，每次next的时候都会返回所有中当前最接近的next,然后返回，支持prev,next操作,负责iterator的delete
+
+## 遗留话题
+
+## BinarySearch
+
+[看这里](https://www.geeksforgeeks.org/the-ubiquitous-binary-search-set-1)和[这里](https://www.topcoder.com/community/competitive-programming/tutorials/binary-search)。这里面的实现方法上利用了循环条件r - l > 1,条件终止的时候检测l，就是需要匹配的key，不匹配就是不存在，好处是每次循环中减少一次比较。利用`A[m] <= key -> l = m` 或者 `A[m] >= key -> r = m`来寻找边界条件，搜索左边界时[1....r), 右边界时(1....r]。由于`r-l>1`, 所以每次取中一定不会取到边界上的数，不会有越界的情况，而在即将到达边界的时候，会出现l-r==1的情况，避免越界访问。mid的取法永远使用l + (r-l)/2

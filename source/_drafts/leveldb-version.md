@@ -1,0 +1,31 @@
+---
+title: leveldb-version
+tags:
+---
+
+# Version 管理
+
+注意RecordReadSample 以及CompactionStat相关，这些会引起compaction
+
+## Version Edit
+
+这就是一个用于描述当前version相对于之前version变化的结构，内部含有newfiles对应的meta(包括最大最小key)，deletedfiles对应的文件号，lognum prevlognum，nextfilenum以及comparetor名字信息等，这个应该是用于检查当前的version是否与之前的兼容的吧。主要是encode以及decode以及debugstring方法用于存取和显示，其他没什么。 VersionSet作为friend class，将会使用这些信息构建内存里的新version。
+
+## Version Set
+
+管理一个集合的version，处理compaction。
+
+- TargetFileSize 这个表示了单个sstable文件的上限，这个值还影响了MaxGrandParentOverlapBytes(level+2中可被影响的范围大小)以及ExpandedCompactionByteSizeLimit(反过来level+2的影响导致level自己又扩大之后的大小) 这两个值的上限。
+- MaxBytesForLevel 决定了每个level中的总大小，从level1开始10M，10倍上升，level0通过memtable的大小以及numfiles数量的上限来限制。
+- MaxFileSizeForLevel 这个目前是固定的，但看注释似乎高level应该让文件更大?, 否则文件更多。
+- ~Version 展示了对于每个Version中files_指定的各level文件的ref管理，只有为0的时候才会删除，这个新版本应该用sharedptr管理。
+- FindFile 负责在一个level(level>=1)的文件的meta中找到指定的key可能存在的文件，由于level>1的文件在它自己的层次内都是按userkey顺序且不重复的，所以使用二分法查找。
+- SomeFileOverlapsRange在files的vector中查看是否有某个file的范围可以覆盖smallest和largest。这里得到的结果如果是真，代表的是这个范围中最小的key在某个file的largekey之前，同时最大的key又在那个file的最小key之后(可以user部分相同)，不然就等于完全在那个file之前了，不算overlap(其实就是我们常说的overlap的情形),这里搜所small的时候，用了maxseq来构成internalkey，因为这样可以尽量把small key的位置在比较的时候靠前,避免smallkey与某个file largest可以相同，然而seq后者偏大，结果没有匹配的错误情形。 对于level0的情况，根据disjoint_sorted_files可以判定，需要遍历所有文件。
+- GetFileIterator 用于根据LevelFileNumIterator产生的文件名和大小，去tablecache里找到对应的table的iterator返回,其中tablecache是一个全局的用来存储table的cache。, 而LevelFileNumIterator则是一个简单的在level>=1的情况下可以查找key位置的iterator。
+- NewConcatenatingIterator 利用上面的函数，构造以及NewTwoLevelIterator构造一个和table-block遍历一样的双层遍历，用于在一群文件中寻找指定文件中的key. 双层中第一层用于
+- AddIterators 则是把level0的所有文件的iterator，以及level>=1时的每层contatenatingiterator加入,后期应该是传递给merge的，其中每次seek的都是一个key的entry。
+- SaveValue 这个是用来作为每次find的时候的callback函数，做存储数据返回作用的。
+- ForEachOverlapping 对于从level0文件开始，每层文件从新到旧搜索, 对于level1以上的，使用findtable在每层中二分搜索, 对每个匹配的文件调用func进行操作，这个可能内部会调用SaveValue进行操作的。
+- Get: 对于version的Get方法，利用一个内部State类来保存运行的状态，利用ForEachOverlapping对每个匹配的文件使用State::Match方法，在这个方法里面，会记录每次seek之后是否遍历了超过1个文件，记录在GetState中，这个是外部传入的，用于最后数据统计的。同时要对当前文件进行寻找匹配，这个使用vset->table_cache_->Get方法来寻找，利用SaveValue方法来放置做最内部的匹配和记录值的工作， 记录的值在传入的saver中，这个也是引用的key和val的指针，最后判断执行结果的true false，这里false代表停止继续操作，已经找到，然后可以返回结果(delete或者val本身)
+
+- UpdateStats 用于判断上面返回的Getstat是否表示当前文件需要进行compact了，这个由allowed_seeks来记录，这是个每个文件不同的变量,记录了允许的seek数量。一般来说单次versoin的Get中match函数进入超过1次，就会把第一次进入的那个file作为allow_seek目标记录减少1,在当前函数中如果超过了seek数量，就记录compacton。根据650行的逻辑，一次seek的时间，就是一次处理一个文件的时间，而一次copaction的时间，是处理大概25个文件的时间，这样相当于25个seek耗时和一个compaction一样，如果25次的version Get都是从这个文件开始，并且本文件不匹配导致记录了seek值的，那么相当于做了一个compaction，说明当前文件需要compact一下了，因为被多次冗余错误范围了。

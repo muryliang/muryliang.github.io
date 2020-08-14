@@ -61,3 +61,11 @@ tags:
 - IsTrivialMove 在只有一个文件需要compact，并且L1没有文件，L2相关的文件size不是很大的情况下才可以
 - IsBaseLevelForKey 这个函数本身只是找是否这次compaction的这个key是不在L2以上的，但是内部的level_ptr是整个struct Compaction 通用的，下次调用也会用到上次利用之后的值，是否意味着参数的传入本身是满足顺序的?
 - ShouldStopBefore 这个用于通过查看L2的文件，比对当前的key，看当前的key进入L1后会覆盖多少L2的byte，这个是为了后期L1到L2合并的时候不至于过于耗费。
+
+## Repair
+
+- findFile 就是利用后缀找到所有文件，分别放入manifest,log,table数组，不断更新nextfilenumber
+- ConvertLogToTable 会把每个log文件都通过转换memtable再变成一个新的table文件存储
+- ScanTable 将每个table的struct tableinfo(包括large small key seq，放入一个vector),对于无法打开的table，archive到一个目录里
+- RepairTable 对于上一步恢复中出错的文件，会利用buildtable进行部分恢复，也加入tablesinfo vector
+- WriteDescriptor 将当前的所有文件构成的veredit写入 manifest文件,设置current， 恢复完成

@@ -11,9 +11,9 @@ tags:
 
 这就是一个用于描述当前version相对于之前version变化的结构，内部含有newfiles对应的meta(包括最大最小key)，deletedfiles对应的文件号，lognum prevlognum，nextfilenum以及comparetor名字信息等，这个应该是用于检查当前的version是否与之前的兼容的吧。主要是encode以及decode以及debugstring方法用于存取和显示，其他没什么。 VersionSet作为friend class，将会使用这些信息构建内存里的新version。
 
-## Version Set
+## Version
 
-管理一个集合的version，处理compaction。
+管理一个集合的version，处理compaction。这些函数里多次使用了专门的内部类来干活。
 
 - TargetFileSize 这个表示了单个sstable文件的上限，这个值还影响了MaxGrandParentOverlapBytes(level+2中可被影响的范围大小)以及ExpandedCompactionByteSizeLimit(反过来level+2的影响导致level自己又扩大之后的大小) 这两个值的上限。
 - MaxBytesForLevel 决定了每个level中的总大小，从level1开始10M，10倍上升，level0通过memtable的大小以及numfiles数量的上限来限制。
@@ -29,3 +29,35 @@ tags:
 - Get: 对于version的Get方法，利用一个内部State类来保存运行的状态，利用ForEachOverlapping对每个匹配的文件使用State::Match方法，在这个方法里面，会记录每次seek之后是否遍历了超过1个文件，记录在GetState中，这个是外部传入的，用于最后数据统计的。同时要对当前文件进行寻找匹配，这个使用vset->table_cache_->Get方法来寻找，利用SaveValue方法来放置做最内部的匹配和记录值的工作， 记录的值在传入的saver中，这个也是引用的key和val的指针，最后判断执行结果的true false，这里false代表停止继续操作，已经找到，然后可以返回结果(delete或者val本身)
 
 - UpdateStats 用于判断上面返回的Getstat是否表示当前文件需要进行compact了，这个由allowed_seeks来记录，这是个每个文件不同的变量,记录了允许的seek数量。一般来说单次versoin的Get中match函数进入超过1次，就会把第一次进入的那个file作为allow_seek目标记录减少1,在当前函数中如果超过了seek数量，就记录compacton。根据650行的逻辑，一次seek的时间，就是一次处理一个文件的时间，而一次copaction的时间，是处理大概25个文件的时间，这样相当于25个seek耗时和一个compaction一样，如果25次的version Get都是从这个文件开始，并且本文件不匹配导致记录了seek值的，那么相当于做了一个compaction，说明当前文件需要compact一下了，因为被多次冗余错误范围了。
+
+- RecordReadSample 似乎是专门用来测试某个key所使用的match数量，然后更新file_to_compact_的
+- PickLevelForMemTableOutput找到最深的可以放入指定key范围的memtable的level层级，用作memtable 持久化的时候
+    - 对于和level0重叠的时候，直接就是只能放入level0,因为需要接下来从0到1合并。
+    - 对于L0不重复的，检查L1，如果重叠,还是只能进L0,因为1以上每层内部不能重叠， 即使1不重叠，如果+2的地方重叠部分过大，到时候会引入过多的compaction牵涉容量，也是不可取的，不能放入L1,只能放入当前层次，就这样循环往上直到最后一层。
+- GetOverlappingInputs 获取和指定start endkey有重叠的所有范围的文件，然后反过来这些文件中涵盖的所有范围对应的文件也需要包括，这个在level 0的时候有体现，其他level由于没重叠，不需要反复。
+
+## Version Builder
+
+接受一个base version 以及 全局的version set
+
+- Apply 会对内部记录的应用vedit中的compaction pointer(这个每层一个，随着不断使用而不断更新，最新的edit的里的是最近的正确值)。同时在之前的基础上更新delete file number 以及add file的metadata
+- SaveTo: 在base的的基础上利用version edit 在apply中累计的值，应用到最终version上,并删除相应不需要的文件, 按照BySmallestKey指定的顺序排列, 这里首先是smallest key，然后是文件number，后者只有在level0的时候才会碰到，不会影响L1今后的顺序二分搜索
+
+## Version Set
+
+每次启动leveldb的时候都会创建一个versionset，然后一个新的version设置为current，之后logandapply一个edit就是利用current以及传入的edit创造新的version,更新每个level的score，对于首次打开的情况还会创建新的manifest文件, 此时会利用WriteSnapshot把current的文件都写进去(也是以edit的形式，因为后面Recover只识别edit形式的记录)，当作base version。  把edit记录到manifest文件中,在base之上的修改。
+
+- WriteSnapshot 持久化当前version为一个edit
+- Recover :要做的就是在最开始的current的基础上(一般都是空的，就是versionset创建的时候自带的那个),不断添加manifest中(根据current找到)的edit，最后形成version添加进去,最后还要检测是否使用新manifest文件, ReuseManifest 这个应该只有开启db的时候才有机会执行。 在不能重用的时候，后期LogAndApply的时候会进入创建descriptor_file_的分支，文件number已经被recover改动过了，这里直接创建，然后持久化当前version，下次recover的时候就不用从最开始一个一个apply edit了，这就是一个中间版本，然后重定向current。 [见这个分析关于ceph](https://bean-li.github.io/leveldb-manifest/)
+- ApproximateOffsetOf 搜索所有文件找到大致的key offset
+- AddLiveFiles: 这个会加入所有存在的version中的所有文件。
+- MaxNextLevelOverlappingBytes 这个会从1到最高层-1找到某个文件 与下一层重叠最大,返回大小
+- MakeInputIterator 会返回加入了两个level的iterator对于有level0参与的需要加入每个L0文件的iter，否则只需要每层的concate iter
+
+### Compact
+
+- PickCompaction 会根据compact score(version apply的时候finialize的时候评定) 或者seek compact(seek的时候allow seek 评定)来选择需要compact的level和文件，然后getrange，GetOverlappingInputs得到覆盖了所有key的当前层的range，在通过 SetupOtherInputs, 这里首先把边界情况的那些key(user 相同但是seq要小的)也加进去，然后加入level+1层的重叠文件，计算出总的start，end key位置，这时的input就是第一批次用来compact的文件了，在此基础上，尝试依据现有的input[1]的总范围，反向扩展input[0],在检测，如果导致的范围不会再反向增大input[1],那么就批准这个新的大范围，这样就覆盖了所有L2上的文件中的key了，如果会增大L2,那么反反复复无穷尽，取消这些扩展，只依靠一开始的L0部分进行compact,计算完后，记录下次compact的位置。为当前最大key(AddBoundary这个只有L0才会有影响)
+- CompactRange 同样是选择压缩范围，这次是手动选择的，同样需要经历GetOverlappingInputs之后SetupOtherInputs
+- IsTrivialMove 在只有一个文件需要compact，并且L1没有文件，L2相关的文件size不是很大的情况下才可以
+- IsBaseLevelForKey 这个函数本身只是找是否这次compaction的这个key是不在L2以上的，但是内部的level_ptr是整个struct Compaction 通用的，下次调用也会用到上次利用之后的值，是否意味着参数的传入本身是满足顺序的?
+- ShouldStopBefore 这个用于通过查看L2的文件，比对当前的key，看当前的key进入L1后会覆盖多少L2的byte，这个是为了后期L1到L2合并的时候不至于过于耗费。

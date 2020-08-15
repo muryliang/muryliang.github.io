@@ -45,18 +45,19 @@ tags:
 
 ## Version Set
 
-每次启动leveldb的时候都会创建一个versionset，然后一个新的version设置为current，之后logandapply一个edit就是利用current以及传入的edit创造新的version,更新每个level的score，对于首次打开的情况还会创建新的manifest文件, 此时会利用WriteSnapshot把current的文件都写进去(也是以edit的形式，因为后面Recover只识别edit形式的记录)，当作base version。  把edit记录到manifest文件中,在base之上的修改。
+每次启动leveldb的时候都会创建一个versionset，然后一个新的version设置为current，之后logandapply一个edit就是利用current以及传入的edit创造新的version,(将这个version用appendversion加入versionset的内存list中)更新每个level的score，对于首次打开的情况还会创建新的manifest文件, 此时会利用WriteSnapshot把current的文件都写进去(也是以edit的形式，因为后面Recover只识别edit形式的记录)，当作base version。  把edit记录到manifest文件中,在base之上的修改。
 
 - WriteSnapshot 持久化当前version为一个edit
 - Recover :要做的就是在最开始的current的基础上(一般都是空的，就是versionset创建的时候自带的那个),不断添加manifest中(根据current找到)的edit，最后形成version添加进去,最后还要检测是否使用新manifest文件, ReuseManifest 这个应该只有开启db的时候才有机会执行。 在不能重用的时候，后期LogAndApply的时候会进入创建descriptor_file_的分支，文件number已经被recover改动过了，这里直接创建，然后持久化当前version，下次recover的时候就不用从最开始一个一个apply edit了，这就是一个中间版本，然后重定向current。 [见这个分析关于ceph](https://bean-li.github.io/leveldb-manifest/)
 - ApproximateOffsetOf 搜索所有文件找到大致的key offset
 - AddLiveFiles: 这个会加入所有存在的version中的所有文件。
+- Recover: 要做的是利用versionset的Recover恢复manifest成version，然后对于比manifest中记录的log更新的log，使用RecoverLogFile按顺序恢复logfile，最后设置当前lastseq
 - MaxNextLevelOverlappingBytes 这个会从1到最高层-1找到某个文件 与下一层重叠最大,返回大小
 - MakeInputIterator 会返回加入了两个level的iterator对于有level0参与的需要加入每个L0文件的iter，否则只需要每层的concate iter
 
 ### Compact
 
-- PickCompaction 会根据compact score(version apply的时候finialize的时候评定) 或者seek compact(seek的时候allow seek 评定)来选择需要compact的level和文件，然后getrange，GetOverlappingInputs得到覆盖了所有key的当前层的range，在通过 SetupOtherInputs, 这里首先把边界情况的那些key(user 相同但是seq要小的)也加进去，然后加入level+1层的重叠文件，计算出总的start，end key位置，这时的input就是第一批次用来compact的文件了，在此基础上，尝试依据现有的input[1]的总范围，反向扩展input[0],在检测，如果导致的范围不会再反向增大input[1],那么就批准这个新的大范围，这样就覆盖了所有L2上的文件中的key了，如果会增大L2,那么反反复复无穷尽，取消这些扩展，只依靠一开始的L0部分进行compact,计算完后，记录下次compact的位置。为当前最大key(AddBoundary这个只有L0才会有影响)
+- PickCompaction 会根据compact score(version apply的时候finialize的时候评定) 或者seek compact(seek的时候allow seek 评定)来选择需要compact的level和文件，(优先score，这个只记录level，由compaction pointer记录要compact的文件，如果是seek，那么直接就是seek对应的level和文件)然后getrange，GetOverlappingInputs得到覆盖了所有key的当前层的range，在通过 SetupOtherInputs, 这里首先把边界情况的那些key(user 相同但是seq要小的)也加进去，然后加入level+1层的重叠文件，计算出总的start，end key位置，这时的input就是第一批次用来compact的文件了，在此基础上，尝试依据现有的input[1]的总范围，反向扩展input[0],在检测，如果导致的范围不会再反向增大input[1],那么就批准这个新的大范围，这样就覆盖了所有L2上的文件中的key了，如果会增大L2,那么反反复复无穷尽，取消这些扩展，只依靠一开始的L0部分进行compact,计算完后，记录下次compact的位置。为当前最大key(AddBoundary这个只有L0才会有影响)
 - CompactRange 同样是选择压缩范围，这次是手动选择的，同样需要经历GetOverlappingInputs之后SetupOtherInputs
 - IsTrivialMove 在只有一个文件需要compact，并且L1没有文件，L2相关的文件size不是很大的情况下才可以
 - IsBaseLevelForKey 这个函数本身只是找是否这次compaction的这个key是不在L2以上的，但是内部的level_ptr是整个struct Compaction 通用的，下次调用也会用到上次利用之后的值，是否意味着参数的传入本身是满足顺序的?

@@ -61,4 +61,4 @@ WriteBatch内部是 start_seq(64) | count(32) | key(varstring) | val(varstring) 
 
 # 读操作
 
-读操作按照memtable，imm，sstable的顺序进行访问，根据传入的snapshot的seq或者当前seq决定最新允许的结果状态。具体的遍历操作在下面描述。需要注意的是在需要访问sstable层次的时候，会涉及更新Version::GetStats，直接导致在read操作的时候也会产生compaction。预测持续随机读冷数据的情况下会产生较多compaction，占用过多cpu，同时根据write的代码，在write需要compaction的时候，如果仍然正在compaction(由于read),就会导致额外的延迟。
+Get: 读操作按照memtable，imm，sstable的顺序进行访问，根据传入的snapshot的seq或者当前seq决定最新允许的结果状态。具体的遍历操作在下面描述。需要注意的是在需要访问sstable层次的时候，会涉及更新Version::GetStats，这个会导致更新compact的指标，在判断成功UpdateStats后，会trigger compaction，因为stats指标更新变得过大代表了可能seek或者文件尺寸过大了，需要compaction了。直接导致在read操作的时候也会产生compaction。预测持续随机读冷数据的情况下会产生较多compaction，占用过多cpu，同时根据write的代码，在write需要compaction的时候，如果仍然正在compaction(由于read),就会导致额外的延迟。

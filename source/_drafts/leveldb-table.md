@@ -1,13 +1,16 @@
 ---
 title: leveldb 表(三)
+toc: true
+categories: 
+    - leveldb
 tags:
-- leveldb
+    - leveldb
 ---
 
 # 概述
 
 这篇主要分析一下table，block相关的读写操作，同时一并分析各种iterator的使用。
-
+<!--more-->
 ## block
 
 具体结构见block_builder.cc 的开头注释描述。<br/>

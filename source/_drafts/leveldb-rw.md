@@ -1,13 +1,16 @@
 ---
 title: leveldb 读写(二)
+toc: true
+categories: 
+    - leveldb
 tags:
-- leveldb
+    - leveldb
 ---
 
 # 概述
 
 leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容错乱或者文件不存在而发生错误。
-
+<!--more-->
 ## Write
 
 不论是Put，还是Delete，都是包装成WriteBatch结构下发的，当然你也可以直接使用writebatch，一个writebatch中的数据可以保证是写在一起的，并且一次性写完的。

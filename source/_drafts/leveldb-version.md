@@ -1,13 +1,16 @@
 ---
 title: leveldb 版本控制及compaction实现(四)
+toc: true
+categories: 
+    - leveldb
 tags:
-- leveldb
+    - leveldb
 ---
 
 # 概述
 
 leveldb的版本控制是通过snapshot完成的。snapshot其实即使一个数字，代表了当前允许查询的最大seq，相当轻量级。和版本相关的有几个数据结构:`version`, `version_set`, `version_edit`
-
+<!--more-->
 ## Version
 
 这个代表一个单个的version，一个version中包含了本version的每个层级存在的文件,以及compaction相关的信息，这是一个纯内存的数据结构，链接进入`version_set`中，在读写的时候会被引用，然后保持在内存里，一旦无任何人引用，就会自动销毁。最新的version永远被current引用，保持不会销毁。

@@ -1,7 +1,10 @@
 ---
 title: leveldb 概述(一)
+toc: true
+categories: 
+    - leveldb
 tags:
-- leveldb
+    - leveldb
 ---
 
 # 概述
@@ -9,6 +12,7 @@ tags:
 写在前面，优秀的leveldb分析已经很多了，想要看梗概的人可以直接看[庖丁解LevelDB](https://catkang.github.io/2017/01/07/leveldb-summary.html)这个系列的文章。
 
 花了一周时间把leveldb的所有代码逐行解析了一遍，除了那些test文件，可累死我了，大多数文件只有不到300行还行，`db_impl.cc` 和`version_set.cc`这两个1500行的文件最累，虽说文件函数逻辑清晰，但自己写的时候还是避免这种过长的文件吧，前后联系看到时候特别累，当然比起ceph的bluestore单个文件1w多行而言仍算是小巫见大巫了，这个留作下次分析。这个level系列的几个blog主要是对之前详细分析的一个总结，并不会在这里逐行解析，也没这个必要，leveldb的精髓是其主要思想，而不是里面的辅助函数，如env_posix层。代码总有效行数，从`cloc`来看，大概在17000行左右，分析的路线从和用户最相关的地方开始，也就是读写，然后引出读写中牵涉的部分，如wal，memtable，table，block，cache，之后讨论version以及compaction，最后通过dbimpl进行总结。
+<!--more-->
 
 # 缺点
 

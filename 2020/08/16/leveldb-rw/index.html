@@ -1,4 +1,287 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=2"><meta name="theme-color" content="#222"><meta name="generator" content="Hexo 5.0.0"><link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png"><link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png"><link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png"><link rel="mask-icon" href="/images/logo.svg" color="#222"><link rel="stylesheet" href="/css/main.css"><link rel="stylesheet" href="/lib/font-awesome/css/all.min.css"><script id="hexo-configurations">var NexT=window.NexT||{},CONFIG={hostname:"yoursite.com",root:"/",scheme:"Pisces",version:"7.8.0",exturl:!1,sidebar:{position:"left",display:"always",padding:18,offset:12,onmobile:!1},copycode:{enable:!1,show_result:!1,style:null},back2top:{enable:!0,sidebar:!1,scrollpercent:!0},bookmark:{enable:!1,color:"#222",save:"auto"},fancybox:!1,mediumzoom:!1,lazyload:!1,pangu:!1,comments:{style:"tabs",active:null,storage:!0,lazyload:!1,nav:null},algolia:{hits:{per_page:10},labels:{input_placeholder:"Search for Posts",hits_empty:"We didn't find any results for the search: ${query}",hits_stats:"${hits} results found in ${time} ms"}},localsearch:{enable:!1,trigger:"auto",top_n_per_article:1,unescape:!1,preload:!1},motion:{enable:!0,async:!1,transition:{post_block:"fadeIn",post_header:"slideDownIn",post_body:"slideDownIn",coll_header:"slideLeftIn",sidebar:"slideUpIn"}}}</script><meta name="description" content="概述leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容"><meta property="og:type" content="article"><meta property="og:title" content="leveldb 读写(二)"><meta property="og:url" content="http://yoursite.com/2020/08/16/leveldb-rw/index.html"><meta property="og:site_name" content="无名小站"><meta property="og:description" content="概述leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容"><meta property="og:locale" content="en_US"><meta property="article:published_time" content="2020-08-16T09:44:51.000Z"><meta property="article:modified_time" content="2020-08-16T09:44:52.006Z"><meta property="article:author" content="muryliang"><meta property="article:tag" content="leveldb"><meta name="twitter:card" content="summary"><link rel="canonical" href="http://yoursite.com/2020/08/16/leveldb-rw/"><script id="page-configurations">CONFIG.page={sidebar:"",isHome:!1,isPost:!0,lang:"en"}</script><title>leveldb 读写(二) | 无名小站</title><noscript><style>.sidebar-inner,.use-motion .brand,.use-motion .collection-header,.use-motion .comments,.use-motion .menu-item,.use-motion .pagination,.use-motion .post-block,.use-motion .post-body,.use-motion .post-header{opacity:initial}.use-motion .site-subtitle,.use-motion .site-title{opacity:initial;top:initial}.use-motion .logo-line-before i{left:initial}.use-motion .logo-line-after i{right:initial}</style></noscript></head><body itemscope itemtype="http://schema.org/WebPage"><div class="container use-motion"><div class="headband"></div><header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="header-inner"><div class="site-brand-container"><div class="site-nav-toggle"><div class="toggle" aria-label="Toggle navigation bar"><span class="toggle-line toggle-line-first"></span><span class="toggle-line toggle-line-middle"></span><span class="toggle-line toggle-line-last"></span></div></div><div class="site-meta"><a href="/" class="brand" rel="start"><span class="logo-line-before"><i></i></span><h1 class="site-title">无名小站</h1><span class="logo-line-after"><i></i></span></a></div><div class="site-nav-right"><div class="toggle popup-trigger"></div></div></div><nav class="site-nav"><ul id="menu" class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i> Home</a></li><li class="menu-item menu-item-tags"><a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i> Tags</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i> Categories</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i> Archives</a></li></ul></nav></div></header><div class="back-to-top"><i class="fa fa-arrow-up"></i> <span>0%</span></div><main class="main"><div class="main-inner"><div class="content-wrap"><div class="content post posts-expand"><article itemscope itemtype="http://schema.org/Article" class="post-block" lang="en"><link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/08/16/leveldb-rw/"><span hidden itemprop="author" itemscope itemtype="http://schema.org/Person"><meta itemprop="image" content="/images/violet.jpg"><meta itemprop="name" content="muryliang"><meta itemprop="description" content="Just for Summary"></span><span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization"><meta itemprop="name" content="无名小站"></span><header class="post-header"><h1 class="post-title" itemprop="name headline"> leveldb 读写(二)</h1><div class="post-meta"><span class="post-meta-item"><span class="post-meta-item-icon"><i class="far fa-calendar"></i></span> <span class="post-meta-item-text">Posted on</span> <time title="Created: 2020-08-16 17:44:51 / Modified: 17:44:52" itemprop="dateCreated datePublished" datetime="2020-08-16T17:44:51+08:00">2020-08-16</time></span><span class="post-meta-item"><span class="post-meta-item-icon"><i class="far fa-folder"></i></span> <span class="post-meta-item-text">In</span> <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/leveldb/" itemprop="url" rel="index"><span itemprop="name">leveldb</span></a></span></span></div></header><div class="post-body" itemprop="articleBody"><h1 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h1><p>leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容错乱或者文件不存在而发生错误。</p><a id="more"></a><h2 id="Write"><a href="#Write" class="headerlink" title="Write"></a>Write</h2><p>不论是Put，还是Delete，都是包装成WriteBatch结构下发的，当然你也可以直接使用writebatch，一个writebatch中的数据可以保证是写在一起的，并且一次性写完的。</p><ul><li><p>准备工作: 所有的写会在Write中通过mutex进行序列化，只有排在开头的写可以继续下去，其他写必须等待。而可以继续下去的写也不是只写自己，这样就不能和好的利用批量写的特性了(其实这里的批量写并不是写sstable，只不过是写wal的时候的批量写，但同样也是需要写硬盘的，批量会更快一点), 这里会首先利用<code>MakeRoomForWrite</code>检查是否需要启动compaction并且等待完成，这里有一个平摊延迟的策略，就是L0文件多于softlimit的时候，会主动延迟1ms,这个是为了让compaction有机会运行，也是为了不至于写得过快导致compaction后面赶不上，结果导致最后触发hardlimit的write延迟过高，造成整体延迟抖动过大。这段的等待会释放锁，让其他的write有机会在期间加入。在通过size检查后，使用<code>BuildBatchGroup</code>把在之前等待期间也加入的writebatch合并到一个writebatch中。</p></li><li><p>开始write: 这里会释放锁，因为memtable是读可并发的。</p><ol><li>写先要写入wal中，这个是为了在每次启动的时候可以恢复memtable的内容。wal的结构也是很简单的，只有一个限制，就是每条记录都必须满足小于kBlockSize大小, 因此，对于过长的record，需要切分，这也就有了full,first,middle,last几种record类型，每条record通过头部的crc，长度，type来分隔。</li><li>写完wal之后，就是memtable了，这个本质上就是一个skiplist，skiplist是一种依据概率形成的数据结构，拥有与红黑树同等级的查询和插入复杂度，但是去除了节点旋转平衡的开销，代价是需要概率来保证查询复杂度O(lg N), leveldb的skiplist不需要支持删除操作，也减少了很多复杂性，skiplist利用了atomic操作实现了一写多读的并发。到了这一步之后本次写就不会触发compaction了，而是在下次写的时候在MakeRoomForWrite里会触发，或者在重新打开db的时候的log recover的时候会触发。</li></ol></li><li><p>收尾工作: 成功写完后，会对group中的每个写都发送signal通知完成，同时通知writers中接下去的head的write继续执行，然后本次write返回。</p></li></ul><h2 id="Read"><a href="#Read" class="headerlink" title="Read"></a>Read</h2><p>Read 由Get操作完成，具体的操作是首先记录本次Get能够接受的最高的seq(从snapshot参数中获取),这个实现了version控制，然后对需要访问的memtable，immtable(这个只有在write的时候才会触发产生，并且只要一产生就会进入compaction流程，所以这是一个暂时性质的东西)和current version进行引用获取，通过这个操作，涉及的所有东西都不会被其他线程擅自删除了，而是会在最终引用归零的时候删除，也正是因为如此，实际内存中存在的memtable在某一时刻可能是多余两个的。假设某个get正在进行并且引用了某个imm，同时一个write触发的imm的compaction结束了，那么write方会unref这个imm，但是imm被Get引用，不会删除，如果Get进程特别慢，在这期间mem又满了，转换了imm，那么内存中当前就会存在超过2个memtable结构，当然这种极高负载的情况在leveldb容量不是非常大或者磁盘故障的情况下不太可能发生。</p><p>Get会依序从mem，imm，自低到高每一层的sstable来搜索，同时通过GetStats记录seek操作行为，这个是为了感知本次查询是否遍历了过多的文件，根据<code>version_set.cc Apply</code>中的注释，过多的seek时间等同于一次compaction，所以get过程中多余的seek会统计起来，达到一定程度就触发一次compaction，以提高今后Get的命中率。</p><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>总的来说，读写结构清晰，而且不存在其他隐形的常驻后端进程的干扰，简洁高效, 也有助于代码分析。</p></div><div><ul class="post-copyright"><li class="post-copyright-author"> <strong>Post author:</strong> muryliang</li><li class="post-copyright-link"> <strong>Post link:</strong> <a href="http://yoursite.com/2020/08/16/leveldb-rw/" title="leveldb 读写(二)">http://yoursite.com/2020/08/16/leveldb-rw/</a></li><li class="post-copyright-license"> <strong>Copyright Notice:</strong> All articles in this blog are licensed under<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i> BY-NC-SA</a> unless stating additionally.</li></ul></div><footer class="post-footer"><div class="post-tags"> <a href="/tags/leveldb/" rel="tag"># leveldb</a></div><div class="post-nav"><div class="post-nav-item"><a href="/2020/08/16/leveldb-globalview/" rel="prev" title="leveldb 概述(一)"><i class="fa fa-chevron-left"></i> leveldb 概述(一)</a></div><div class="post-nav-item"> <a href="/2020/08/16/leveldb-table/" rel="next" title="leveldb 表(三)">leveldb 表(三)<i class="fa fa-chevron-right"></i></a></div></div></footer></article></div><script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.0.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yoursite.com","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"always","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="概述leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容">
+<meta property="og:type" content="article">
+<meta property="og:title" content="leveldb 读写(二)">
+<meta property="og:url" content="http://yoursite.com/2020/08/16/leveldb-rw/index.html">
+<meta property="og:site_name" content="无名小站">
+<meta property="og:description" content="概述leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2020-08-16T09:44:51.000Z">
+<meta property="article:modified_time" content="2020-08-16T09:44:52.006Z">
+<meta property="article:author" content="muryliang">
+<meta property="article:tag" content="leveldb">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://yoursite.com/2020/08/16/leveldb-rw/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'en'
+  };
+</script>
+
+  <title>leveldb 读写(二) | 无名小站</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">无名小站</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>Home</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>Tags</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2020/08/16/leveldb-rw/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/violet.jpg">
+      <meta itemprop="name" content="muryliang">
+      <meta itemprop="description" content="Just for Summary">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="无名小站">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          leveldb 读写(二)
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">Posted on</span>
+              
+
+              <time title="Created: 2020-08-16 17:44:51 / Modified: 17:44:52" itemprop="dateCreated datePublished" datetime="2020-08-16T17:44:51+08:00">2020-08-16</time>
+            </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">In</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/leveldb/" itemprop="url" rel="index"><span itemprop="name">leveldb</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h1 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h1><p>leveldb的写全都是通过WriteBatch完成的，读则是Get接口，这些内部除了准备阶段，其他全都是可以并行的部分，也不必担心rw的过程中如果有其他的rw发生，或者compaction发生而导致文件的消失，首先写入是一次性的，不存在写入的文件还可以修改；其次，MVCC的模式使得那些正在被查询或者用来compaction的版本不会被意外删除，所以get和compaction不会因为文件内容错乱或者文件不存在而发生错误。</p>
+<a id="more"></a>
+<h2 id="Write"><a href="#Write" class="headerlink" title="Write"></a>Write</h2><p>不论是Put，还是Delete，都是包装成WriteBatch结构下发的，当然你也可以直接使用writebatch，一个writebatch中的数据可以保证是写在一起的，并且一次性写完的。</p>
+<ul>
+<li><p>准备工作: 所有的写会在Write中通过mutex进行序列化，只有排在开头的写可以继续下去，其他写必须等待。而可以继续下去的写也不是只写自己，这样就不能和好的利用批量写的特性了(其实这里的批量写并不是写sstable，只不过是写wal的时候的批量写，但同样也是需要写硬盘的，批量会更快一点), 这里会首先利用<code>MakeRoomForWrite</code>检查是否需要启动compaction并且等待完成，这里有一个平摊延迟的策略，就是L0文件多于softlimit的时候，会主动延迟1ms,这个是为了让compaction有机会运行，也是为了不至于写得过快导致compaction后面赶不上，结果导致最后触发hardlimit的write延迟过高，造成整体延迟抖动过大。这段的等待会释放锁，让其他的write有机会在期间加入。在通过size检查后，使用<code>BuildBatchGroup</code>把在之前等待期间也加入的writebatch合并到一个writebatch中。</p>
+</li>
+<li><p>开始write: 这里会释放锁，因为memtable是读可并发的。</p>
+<ol>
+<li>写先要写入wal中，这个是为了在每次启动的时候可以恢复memtable的内容。wal的结构也是很简单的，只有一个限制，就是每条记录都必须满足小于kBlockSize大小, 因此，对于过长的record，需要切分，这也就有了full,first,middle,last几种record类型，每条record通过头部的crc，长度，type来分隔。</li>
+<li>写完wal之后，就是memtable了，这个本质上就是一个skiplist，skiplist是一种依据概率形成的数据结构，拥有与红黑树同等级的查询和插入复杂度，但是去除了节点旋转平衡的开销，代价是需要概率来保证查询复杂度O(lg N), leveldb的skiplist不需要支持删除操作，也减少了很多复杂性，skiplist利用了atomic操作实现了一写多读的并发。到了这一步之后本次写就不会触发compaction了，而是在下次写的时候在MakeRoomForWrite里会触发，或者在重新打开db的时候的log recover的时候会触发。</li>
+</ol>
+</li>
+<li><p>收尾工作: 成功写完后，会对group中的每个写都发送signal通知完成，同时通知writers中接下去的head的write继续执行，然后本次write返回。</p>
+</li>
+</ul>
+<h2 id="Read"><a href="#Read" class="headerlink" title="Read"></a>Read</h2><p>Read 由Get操作完成，具体的操作是首先记录本次Get能够接受的最高的seq(从snapshot参数中获取),这个实现了version控制，然后对需要访问的memtable，immtable(这个只有在write的时候才会触发产生，并且只要一产生就会进入compaction流程，所以这是一个暂时性质的东西)和current version进行引用获取，通过这个操作，涉及的所有东西都不会被其他线程擅自删除了，而是会在最终引用归零的时候删除，也正是因为如此，实际内存中存在的memtable在某一时刻可能是多余两个的。假设某个get正在进行并且引用了某个imm，同时一个write触发的imm的compaction结束了，那么write方会unref这个imm，但是imm被Get引用，不会删除，如果Get进程特别慢，在这期间mem又满了，转换了imm，那么内存中当前就会存在超过2个memtable结构，当然这种极高负载的情况在leveldb容量不是非常大或者磁盘故障的情况下不太可能发生。</p>
+<p>Get会依序从mem，imm，自低到高每一层的sstable来搜索，同时通过GetStats记录seek操作行为，这个是为了感知本次查询是否遍历了过多的文件，根据<code>version_set.cc Apply</code>中的注释，过多的seek时间等同于一次compaction，所以get过程中多余的seek会统计起来，达到一定程度就触发一次compaction，以提高今后Get的命中率。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>总的来说，读写结构清晰，而且不存在其他隐形的常驻后端进程的干扰，简洁高效, 也有助于代码分析。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>Post author:  </strong>muryliang
+  </li>
+  <li class="post-copyright-link">
+    <strong>Post link: </strong>
+    <a href="http://yoursite.com/2020/08/16/leveldb-rw/" title="leveldb 读写(二)">http://yoursite.com/2020/08/16/leveldb-rw/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>Copyright Notice:  </strong>All articles in this blog are licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> unless stating additionally.
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/leveldb/" rel="tag"># leveldb</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/08/16/leveldb-globalview/" rel="prev" title="leveldb 概述(一)">
+      <i class="fa fa-chevron-left"></i> leveldb 概述(一)
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2020/08/16/leveldb-table/" rel="next" title="leveldb 表(三)">
+      leveldb 表(三) <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
   window.addEventListener('tabs:register', () => {
     let { activeClass } = CONFIG.comments;
     if (CONFIG.comments.storage) {
@@ -18,4 +301,149 @@
       localStorage.setItem('comments_active', commentClass);
     });
   }
-</script></div><div class="toggle sidebar-toggle"><span class="toggle-line toggle-line-first"></span><span class="toggle-line toggle-line-middle"></span><span class="toggle-line toggle-line-last"></span></div><aside class="sidebar"><div class="sidebar-inner"><ul class="sidebar-nav motion-element"><li class="sidebar-nav-toc"> Table of Contents</li><li class="sidebar-nav-overview"> Overview</li></ul><div class="post-toc-wrap sidebar-panel"><div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%A6%82%E8%BF%B0"><span class="nav-number">1.</span> <span class="nav-text">概述</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#Write"><span class="nav-number">1.1.</span> <span class="nav-text">Write</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Read"><span class="nav-number">1.2.</span> <span class="nav-text">Read</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.3.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div></div><div class="site-overview-wrap sidebar-panel"><div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person"> <img class="site-author-image" itemprop="image" alt="muryliang" src="/images/violet.jpg"><p class="site-author-name" itemprop="name">muryliang</p><div class="site-description" itemprop="description">Just for Summary</div></div><div class="site-state-wrap motion-element"><nav class="site-state"><div class="site-state-item site-state-posts"> <a href="/archives/"><span class="site-state-item-count">4</span> <span class="site-state-item-name">posts</span></a></div><div class="site-state-item site-state-categories"> <a href="/categories/"><span class="site-state-item-count">1</span> <span class="site-state-item-name">categories</span></a></div><div class="site-state-item site-state-tags"> <a href="/tags/"><span class="site-state-item-count">1</span> <span class="site-state-item-name">tags</span></a></div></nav></div><div class="cc-license motion-element" itemprop="license"> <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="noopener" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a></div></div></div></aside><div id="sidebar-dimmer"></div></div></main><footer class="footer"><div class="footer-inner"><div class="copyright"> &copy; <span itemprop="copyrightYear">2020</span><span class="with-love"><i class="fa fa-heart"></i></span> <span class="author" itemprop="copyrightHolder">muryliang</span></div><div class="powered-by">Powered by <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://pisces.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Pisces</a></div></div></footer></div><script src="/lib/anime.min.js"></script><script src="/lib/velocity/velocity.min.js"></script><script src="/lib/velocity/velocity.ui.min.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/pisces.js"></script><script src="/js/next-boot.js"></script></body></html>
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%A6%82%E8%BF%B0"><span class="nav-number">1.</span> <span class="nav-text">概述</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#Write"><span class="nav-number">1.1.</span> <span class="nav-text">Write</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Read"><span class="nav-number">1.2.</span> <span class="nav-text">Read</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.3.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="muryliang"
+      src="/images/violet.jpg">
+  <p class="site-author-name" itemprop="name">muryliang</p>
+  <div class="site-description" itemprop="description">Just for Summary</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">4</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">1</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">1</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="cc-license motion-element" itemprop="license">
+    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="noopener" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muryliang</span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://pisces.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Pisces</a>
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
